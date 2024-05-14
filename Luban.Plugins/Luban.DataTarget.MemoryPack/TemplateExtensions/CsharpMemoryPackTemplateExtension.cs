@@ -49,13 +49,14 @@ public partial class CsharpMemoryPackTemplateExtension : ScriptObject
 
     public static string GenConfigConstructor(DefBean bean)
     {
-        var constructor      = new StringBuilder();
-        var body             = new StringBuilder();
-        var base_constructor = new StringBuilder();
+        var constructor = new StringBuilder();
+        var parentConstructor = new StringBuilder();
+        var body = new StringBuilder();
+        var baseConstructor = new StringBuilder();
 
         foreach(var field in bean.Fields)
         {
-            var declare_type = _GetDeclareType(field);
+            var declareType = _GetDeclareType(field);
             if(!field.NeedExport())
             {
                 continue;
@@ -63,23 +64,62 @@ public partial class CsharpMemoryPackTemplateExtension : ScriptObject
 
             if(field.CType.HasTag("text"))
             {
-                constructor.Append($"{declare_type} _{field.Name}_key,");
+                constructor.Append($"{declareType} _{field.Name}_key,");
                 body.AppendLine($"\tthis._{field.Name}_key = _{field.Name}_key;");
             }
             else
             {
-                constructor.Append($"{declare_type} {field.Name},");
+                constructor.Append($"{declareType} {field.Name},");
                 body.AppendLine($"\tthis.{field.Name} = {field.Name};");
             }
         }
 
-        return$$"""
-                [MemoryPackConstructor]
-                public {{bean.Name}}({{constructor.ToString().TrimEnd(',')}}) {{base_constructor}}
+        DefBean currentBean = bean;
+        while (currentBean.ParentDefType != null && !string.IsNullOrEmpty(currentBean.Parent))
+        {
+            currentBean = currentBean.ParentDefType;
+            
+            foreach(var field in currentBean.Fields)
+            {
+                var declareType = _GetDeclareType(field);
+                if(!field.NeedExport())
                 {
-                {{body.ToString().TrimEnd('\n')}}
+                    continue;
                 }
-                """;
+
+                if(field.CType.HasTag("text"))
+                {
+                    parentConstructor.Append($"{declareType} _{field.Name}_key,");
+                    baseConstructor.Append($"_{field.Name}_key,");
+                }
+                else
+                {
+                    parentConstructor.Append($"{declareType} {field.Name},");
+                    baseConstructor.Append($"{field.Name},");
+                }
+            }
+        }
+
+        if(baseConstructor.Length <= 0)
+        {
+            return$$"""
+                    [MemoryPackConstructor]
+                    public {{bean.Name}}({{constructor.ToString().TrimEnd(',')}}) {{baseConstructor}}
+                    {
+                    {{body.ToString().TrimEnd('\n')}}
+                    }
+                    """;
+        }
+        else
+        {
+            return$$"""
+                    [MemoryPackConstructor]
+                    public {{bean.Name}}({{constructor.ToString() + parentConstructor.ToString().TrimEnd(',')}}) : base({{baseConstructor.ToString().TrimEnd(',')}})
+                    {
+                    {{body.ToString().TrimEnd('\n')}}
+                    }
+                    """;
+        }
     }
 
     private static string _GetDeclareType(DefField field)
